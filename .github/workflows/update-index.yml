@@ -1,0 +1,85 @@
+name: Update Markdown Index
+
+on:
+  workflow_dispatch: # Allows manual trigger from GitHub UI / CLI
+  push:
+    branches:
+      - main # Change to master if that is your default branch
+    paths:
+      - '*.md' # Matches any markdown file in the root
+      - '.github/workflows/update-index.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-index:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Generate index.json
+        run: |
+          python - << 'EOF'
+          import os
+          import json
+          import re
+          import yaml
+
+          MARKDOWN_DIR = '.' # Root directory
+          OUTPUT_FILE = 'index.json'
+
+          # Optional: Exclude common root markdown files that shouldn't be in the article index
+          IGNORED_FILES = {'README.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'LICENSE.md'}
+
+          FRONT_MATTER_REGEX = re.compile(r'^---\s*\n(.*?)\n---\s*\n', re.DOTALL)
+
+          articles = []
+
+          for filename in sorted(os.listdir(MARKDOWN_DIR)):
+              if filename.endswith('.md') and filename not in IGNORED_FILES:
+                  filepath = os.path.join(MARKDOWN_DIR, filename)
+                  
+                  # Ensure it's a file, not a directory ending in .md
+                  if os.path.isfile(filepath):
+                      with open(filepath, 'r', encoding='utf-8') as f:
+                          content = f.read()
+
+                      match = FRONT_MATTER_REGEX.search(content)
+                      if match:
+                          try:
+                              metadata = yaml.safe_load(match.group(1)) or {}
+                              articles.append({
+                                  "filename": filename,
+                                  "title": metadata.get("title", ""),
+                                  "date": str(metadata.get("date", "")),
+                                  "summary": metadata.get("summary", "")
+                              })
+                          except yaml.YAMLError as e:
+                              print(f"Warning: Failed to parse YAML in {filename}: {e}")
+
+          # Sort articles by date descending (newest first)
+          articles.sort(key=lambda x: x.get('date', ''), reverse=True)
+
+          with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+              json.dump(articles, f, indent=2, ensure_ascii=False)
+              f.write('\n')
+
+          print(f"Successfully generated {OUTPUT_FILE} with {len(articles)} entries.")
+          EOF
+
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update index.json [skip ci]"
+          file_pattern: 'index.json'
