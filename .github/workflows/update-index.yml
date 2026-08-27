@@ -37,9 +37,10 @@ jobs:
           import yaml
 
           MARKDOWN_DIR = '.' # Root directory
-          OUTPUT_FILE = 'index.json'
+          OUTPUT_DIR = '.json'
+          OUTPUT_FILE = os.path.join(OUTPUT_DIR, 'index.json')
 
-          # Optional: Exclude common root markdown files that shouldn't be in the article index
+          # Exclude non-article root markdown files
           IGNORED_FILES = {'README.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'LICENSE.md'}
 
           FRONT_MATTER_REGEX = re.compile(r'^---\s*\n(.*?)\n---\s*\n', re.DOTALL)
@@ -50,7 +51,6 @@ jobs:
               if filename.endswith('.md') and filename not in IGNORED_FILES:
                   filepath = os.path.join(MARKDOWN_DIR, filename)
                   
-                  # Ensure it's a file, not a directory ending in .md
                   if os.path.isfile(filepath):
                       with open(filepath, 'r', encoding='utf-8') as f:
                           content = f.read()
@@ -71,6 +71,9 @@ jobs:
           # Sort articles by date descending (newest first)
           articles.sort(key=lambda x: x.get('date', ''), reverse=True)
 
+          # Ensure the destination directory exists
+          os.makedirs(OUTPUT_DIR, exist_ok=True)
+
           with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
               json.dump(articles, f, indent=2, ensure_ascii=False)
               f.write('\n')
@@ -81,5 +84,5 @@ jobs:
       - name: Commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore: update index.json [skip ci]"
-          file_pattern: 'index.json'
+          commit_message: "chore: update .json/index.json [skip ci]"
+          file_pattern: '.json/index.json'
