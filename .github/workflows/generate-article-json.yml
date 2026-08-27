@@ -1,0 +1,111 @@
+name: Generate JSON for Markdown Articles
+
+on:
+  workflow_dispatch: # Allows manual run from GitHub UI / CLI
+  push:
+    branches:
+      - main # Change to master if that is your default branch
+    paths:
+      - '*.md'
+      - '.github/workflows/generate-article-json.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-article-json:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Generate individual article JSON files
+        run: |
+          python - << 'EOF'
+          import os
+          import json
+          import re
+          import yaml
+          from datetime import date, datetime
+
+          MARKDOWN_DIR = '.'
+          OUTPUT_DIR = '.json'
+
+          # Root markdown files to exclude
+          IGNORED_FILES = {'README.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'LICENSE.md'}
+
+          FRONT_MATTER_REGEX = re.compile(r'^---\s*\n(.*?)\n---\s*\n?(.*)$', re.DOTALL)
+
+          os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+          processed_count = 0
+
+          for filename in sorted(os.listdir(MARKDOWN_DIR)):
+              if filename.endswith('.md') and filename not in IGNORED_FILES:
+                  filepath = os.path.join(MARKDOWN_DIR, filename)
+
+                  if os.path.isfile(filepath):
+                      with open(filepath, 'r', encoding='utf-8') as f:
+                          raw_text = f.read()
+
+                      match = FRONT_MATTER_REGEX.match(raw_text)
+
+                      if match:
+                          front_matter_raw = match.group(1)
+                          body_content = match.group(2).strip()
+
+                          try:
+                              metadata = yaml.safe_load(front_matter_raw) or {}
+                          except yaml.YAMLError as e:
+                              print(f"Warning: Failed to parse YAML in {filename}: {e}")
+                              metadata = {}
+                      else:
+                          metadata = {}
+                          body_content = raw_text.strip()
+
+                      # Format date cleanly (handles yaml date/datetime objects and strings)
+                      raw_date = metadata.get("date", "")
+                      if isinstance(raw_date, (date, datetime)):
+                          formatted_date = raw_date.strftime('%Y-%m-%d')
+                      else:
+                          formatted_date = str(raw_date)
+
+                      # Ensure tags is formatted as a list
+                      tags = metadata.get("tags", [])
+                      if isinstance(tags, str):
+                          tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+                      article_data = {
+                          "title": str(metadata.get("title", "")),
+                          "summary": str(metadata.get("summary", "")),
+                          "date": formatted_date,
+                          "tags": tags,
+                          "content": body_content
+                      }
+
+                      base_name = os.path.splitext(filename)[0]
+                      output_filepath = os.path.join(OUTPUT_DIR, f"{base_name}.json")
+
+                      with open(output_filepath, 'w', encoding='utf-8') as out_f:
+                          json.dump(article_data, out_f, indent=2, ensure_ascii=False)
+                          out_f.write('\n')
+
+                      processed_count += 1
+
+          print(f"Successfully generated {processed_count} JSON file(s) in '{OUTPUT_DIR}/'.")
+          EOF
+
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: generate article JSON files [skip ci]"
+          file_pattern: '.json/*.json'
